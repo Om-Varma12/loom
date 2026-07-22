@@ -14,12 +14,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, StrictStr
 
 from orchestration.observability.audit_ledger import AuditLedger
+from dependencies.auth_dep import CurrentUser, get_current_user
 
-router = APIRouter(prefix="/audit", tags=["audit"])
+router = APIRouter(
+    prefix="/audit",
+    tags=["audit"],
+    dependencies=[Depends(get_current_user)],
+)
 _ledger = AuditLedger()
 
 
@@ -65,12 +70,15 @@ import json
 from datetime import datetime
 
 @router.get("/{run_id}", response_model=list[AuditEntryResponse])
-async def get_audit_entries(run_id: str) -> list[dict[str, Any]]:
+async def get_audit_entries(
+    run_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> list[dict[str, Any]]:
     """
     Return all audit ledger entries for the given pipeline run.
     Entries are ordered chronologically (oldest first).
     """
-    entries = await _ledger.get_entries(run_id)
+    entries = await _ledger.get_entries(run_id, current_user.id)
     if not entries:
         raise HTTPException(
             status_code=404,
@@ -101,12 +109,15 @@ async def get_audit_entries(run_id: str) -> list[dict[str, Any]]:
 
 
 @router.get("/{run_id}/summary", response_model=RunAuditSummary)
-async def get_audit_summary(run_id: str) -> RunAuditSummary:
+async def get_audit_summary(
+    run_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> RunAuditSummary:
     """
     Return a compact risk-annotated summary for the given run.
     Suitable for displaying in the frontend's SemanticChangeSummary panel.
     """
-    entries = await _ledger.get_entries(run_id)
+    entries = await _ledger.get_entries(run_id, current_user.id)
     if not entries:
         raise HTTPException(
             status_code=404,

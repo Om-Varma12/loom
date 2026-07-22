@@ -396,18 +396,20 @@ backend_agent, streamlit_agent, and readme_agent with the dependencies in Issue 
         try:
             await conn.execute(
                 """
-                INSERT INTO pipeline_execution_plans (run_id, task, plan_json, status, updated_at)
-                VALUES ($1, $2, $3::jsonb, $4, now())
+                INSERT INTO pipeline_execution_plans (run_id, task, plan_json, status, user_id, updated_at)
+                VALUES ($1, $2, $3::jsonb, $4, $5, now())
                 ON CONFLICT (run_id) DO UPDATE SET
                   task = EXCLUDED.task,
                   plan_json = EXCLUDED.plan_json,
                   status = EXCLUDED.status,
+                  user_id = EXCLUDED.user_id,
                   updated_at = now()
                 """,
                 plan.run_id,
                 plan.task,
                 plan.model_dump_json(),
                 plan.status,
+                plan.context.get("user_id"),
             )
         except Exception as exc:
             log_execution_event("orchestration.plan.persist_error", {"run_id": plan.run_id, "error": str(exc)})

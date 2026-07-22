@@ -1,5 +1,11 @@
 import { useEffect, useState, useRef } from 'react'
-import { getProjects, getChats, type Project, type Chat } from '../lib/projects'
+import {
+  createProject,
+  getProjects,
+  getChats,
+  type Project,
+  type Chat,
+} from '../lib/projects'
 
 export type AppPage = 'chat' | 'marketplace'
 
@@ -110,21 +116,12 @@ function Sidebar({
 
   const handleSaveProject = () => {
     if (newProjectName) {
-      fetch(`${import.meta.env.VITE_BACKEND_ADDR ?? import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'}/projects/create`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: newProjectName,
-          path: newProjectPath,
-        }),
+      createProject({
+        name: newProjectName,
+        description: newProjectPath || null,
+        agent_ids: [],
       })
-        .then(async (res) => {
-          if (!res.ok) {
-            const errorText = await res.text()
-            throw new Error(errorText || 'Failed to create project')
-          }
+        .then(() => {
           window.dispatchEvent(new CustomEvent('project-created'))
           setIsAddingProject(false)
           setNewProjectName('')

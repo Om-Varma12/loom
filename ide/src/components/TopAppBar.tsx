@@ -1,3 +1,6 @@
+import { useClerk, useUser } from "@clerk/react";
+import { resetAuthCaches } from "../lib/authFetch";
+
 type TopAppBarProps = {
   projectName?: string;
   prompt?: string;
@@ -17,6 +20,30 @@ function TopAppBar({
   setActiveOverlayPanel,
   isProjectSelected,
 }: TopAppBarProps) {
+  const { signOut } = useClerk();
+  const { user } = useUser();
+  const userLabel =
+    user?.firstName ||
+    user?.primaryEmailAddress?.emailAddress ||
+    "Account";
+
+  const handleSignOut = () => {
+    resetAuthCaches();
+    void signOut({ redirectUrl: "/sign-in" });
+  };
+
+  const accountButton = (
+    <button
+      aria-label="Sign out"
+      className="p-2 text-on-surface-variant hover:bg-surface-variant/20 rounded-xl transition-all active:scale-95 flex items-center justify-center"
+      onClick={handleSignOut}
+      title={`Sign out ${userLabel}`}
+      type="button"
+    >
+      <span className="material-symbols-outlined text-[18px]">logout</span>
+    </button>
+  );
+
   if (isSessionActive) {
     return (
       <header className="h-14 flex items-center justify-between px-6 border-b border-[#262626] bg-[#0A0A0A] shrink-0 w-full z-10">
@@ -96,6 +123,8 @@ function TopAppBar({
               view_sidebar
             </span>
           </button>
+
+          {accountButton}
         </div>
       </header>
     );
@@ -151,6 +180,8 @@ function TopAppBar({
             view_sidebar
           </span>
         </button>
+
+        {accountButton}
       </div>
     </header>
   );

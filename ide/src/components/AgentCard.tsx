@@ -1,14 +1,14 @@
-import MaterialIcon from './MaterialIcon'
-import type { AgentData } from '../lib/agents'
+import MaterialIcon from "./MaterialIcon";
+import type { AgentData } from "../lib/agents";
 
-export type AgentCardData = AgentData
+export type AgentCardData = AgentData;
 
 type AgentCardProps = {
-  agent: AgentData
-  isPending?: boolean
-  onDownload: (agentId: string) => void
-  onUninstall: (agentId: string) => void
-}
+  agent: AgentData;
+  isPending?: boolean;
+  onDownload: (agentId: string) => void;
+  onUninstall: (agentId: string) => void;
+};
 
 function AgentCard({
   agent,
@@ -18,9 +18,7 @@ function AgentCard({
 }: AgentCardProps) {
   return (
     <article
-      className={`agent-card${agent.type === 'Community' ? ' agent-card--community' : ''}${
-        agent.downloaded ? ' agent-card--selected' : ''
-      }`}
+      className={`agent-card${agent.type === "Community" ? " agent-card--community" : ""}`}
     >
       <div className="agent-card__header">
         <div className="agent-card__identity">
@@ -63,20 +61,28 @@ function AgentCard({
 
       <div className="agent-card__actions">
         <button
-          className={agent.downloaded ? 'agent-card__team-button--selected' : undefined}
+          className={
+            agent.downloaded ? "agent-card__team-button--selected" : undefined
+          }
           type="button"
           onClick={() => {
             if (!agent.downloaded) {
-              onDownload(agent.id)
+              onDownload(agent.id);
             }
           }}
           disabled={isPending}
         >
           <span className="agent-card__team-label">
-            {isPending ? 'Working...' : agent.downloaded ? 'Downloaded' : 'Download'}
+            {isPending
+              ? "Working..."
+              : agent.downloaded
+                ? "Downloaded"
+                : "Download"}
           </span>
           {agent.downloaded ? (
-            <span className="agent-card__team-remove-label">Installed in your workspace</span>
+            <span className="agent-card__team-remove-label">
+              Installed in your workspace
+            </span>
           ) : null}
         </button>
         {agent.downloaded ? (
@@ -93,7 +99,7 @@ function AgentCard({
         )}
       </div>
     </article>
-  )
+  );
 }
 
-export default AgentCard
+export default AgentCard;

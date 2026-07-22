@@ -2,8 +2,7 @@ import { useState } from 'react'
 
 import type { AgentCardData } from './AgentCard'
 import MaterialIcon from './MaterialIcon'
-
-const API_BASE_URL = import.meta.env.VITE_BACKEND_ADDR ?? import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
+import { createProject } from '../lib/projects'
 
 type ProjectCheckoutModalProps = {
   agents: AgentCardData[]
@@ -35,22 +34,11 @@ function ProjectCheckoutModal({
     setSubmitError('')
 
     try {
-      const response = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/projects`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: projectName.trim(),
-          description: projectDescription.trim(),
-          agent_ids: agents.map((agent) => agent.id),
-        }),
+      await createProject({
+        name: projectName.trim(),
+        description: projectDescription.trim(),
+        agent_ids: agents.map((agent) => agent.id),
       })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(errorText || 'Failed to create project')
-      }
 
       if (onSuccess) {
         onSuccess()

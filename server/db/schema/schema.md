@@ -9,8 +9,10 @@ Stores user accounts.
 | Column | Type | Constraints |
 |----------|----------|----------|
 | id | UUID | PK |
+| clerk_user_id | TEXT | UNIQUE, nullable for legacy rows |
 | email | TEXT | UNIQUE, NOT NULL |
 | name | TEXT | NOT NULL |
+| role | TEXT | DEFAULT 'user' |
 | created_at | TIMESTAMP | DEFAULT NOW() |
 
 ### Relationships

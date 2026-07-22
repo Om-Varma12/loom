@@ -1,33 +1,27 @@
-import { useState } from 'react'
-import type { AppPage } from './components/Sidebar'
-import MarketplacePage from './pages/MarketplacePage'
-import WorkspacePage from './pages/WorkspacePage'
-import './App.css'
+import { BrowserRouter, Routes, Route } from "react-router";
+import { ProtectedRoute } from "./routes/ProtectedRoute";
+import { PublicOnlyRoute } from "./routes/PublicOnlyRoute";
+import SignIn from "./pages/SignIn";
+import SignUp from "./pages/SignUp";
+import SsoCallback from "./pages/SsoCallback";
+import Home from "./pages/Home";
 
-function App() {
-  const [page, setPage] = useState<AppPage>('chat')
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
-
-  const handleNavigate = (newPage: AppPage, agentId?: string | null) => {
-    setPage(newPage)
-    setSelectedAgentId(agentId || null)
-  }
-
-  if (page === 'marketplace') {
-    return (
-      <MarketplacePage
-        onNavigate={handleNavigate}
-        initialSelectedAgentId={selectedAgentId}
-      />
-    )
-  }
-
+export default function App() {
   return (
-    <WorkspacePage
-      activePage={page}
-      onNavigate={handleNavigate}
-    />
-  )
-}
+    <BrowserRouter>
+      <Routes>
+        <Route element={<PublicOnlyRoute />}>
+          <Route path="/sign-in" element={<SignIn />} />
+          <Route path="/sign-up" element={<SignUp />} />
+        </Route>
 
-export default App
+        {/* The OAuth redirect lands here regardless of auth state, so it's outside both guards */}
+        <Route path="/sso-callback" element={<SsoCallback />} />
+
+        <Route element={<ProtectedRoute />}>
+          <Route path="/" element={<Home />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}

@@ -42,7 +42,7 @@ class AgentMemoryService:
         finally:
             await self.db.release_conn(conn)
 
-    async def save_memory(self, entry: AgentMemoryEntry) -> AgentMemoryEntry:
+    async def save_memory(self, entry: AgentMemoryEntry, user_id: str) -> AgentMemoryEntry:
         if not self.has_pool:
             raise RuntimeError("Database pool not initialized")
         
@@ -55,8 +55,8 @@ class AgentMemoryService:
         try:
             row = await conn.fetchrow(
                 """
-                INSERT INTO agent_memories (agent_id, context, summary, learned_info, tags, embedding)
-                VALUES ($1, $2, $3, $4, $5, $6::vector)
+                INSERT INTO agent_memories (agent_id, context, summary, learned_info, tags, embedding, user_id)
+                VALUES ($1, $2, $3, $4, $5, $6::vector, $7)
                 RETURNING id, agent_id, context, summary, learned_info, tags, embedding, created_at
                 """,
                 entry.agent_id,
@@ -64,7 +64,8 @@ class AgentMemoryService:
                 entry.summary,
                 entry.learned_info,
                 entry.tags,
-                _vector_literal(embedding)
+                _vector_literal(embedding),
+                user_id
             )
             data = dict(row)
             if data.get("embedding") is not None:
@@ -74,7 +75,12 @@ class AgentMemoryService:
         finally:
             await self.db.release_conn(conn)
 
-    async def get_memories(self, agent_id: Optional[str] = None, tags: Optional[List[str]] = None) -> List[AgentMemoryEntry]:
+    async def get_memories(
+        self,
+        user_id: str,
+        agent_id: Optional[str] = None,
+        tags: Optional[List[str]] = None
+    ) -> List[AgentMemoryEntry]:
         if not self.has_pool:
             return []
         conn = await self.db.get_conn()
@@ -82,10 +88,12 @@ class AgentMemoryService:
             rows = await conn.fetch(
                 """
                 SELECT id, agent_id, context, summary, learned_info, tags, embedding, created_at FROM agent_memories
-                WHERE ($1::text IS NULL OR agent_id = $1)
-                  AND ($2::text[] IS NULL OR tags && $2)
+                WHERE user_id = $1
+                  AND ($2::text IS NULL OR agent_id = $2)
+                  AND ($3::text[] IS NULL OR tags && $3)
                 ORDER BY created_at DESC
                 """,
+                user_id,
                 agent_id,
                 tags
             )
@@ -100,15 +108,15 @@ class AgentMemoryService:
         finally:
             await self.db.release_conn(conn)
 
-    async def save_execution(self, entry: AgentExecutionEntry) -> AgentExecutionEntry:
+    async def save_execution(self, entry: AgentExecutionEntry, user_id: str) -> AgentExecutionEntry:
         if not self.has_pool:
             raise RuntimeError("Database pool not initialized")
         conn = await self.db.get_conn()
         try:
             row = await conn.fetchrow(
                 """
-                INSERT INTO agent_executions (agent_id, task_id, input_data, output_data, status, metadata)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                INSERT INTO agent_executions (agent_id, task_id, input_data, output_data, status, metadata, user_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 RETURNING id, agent_id, task_id, input_data, output_data, status, metadata, created_at
                 """,
                 entry.agent_id,
@@ -116,7 +124,8 @@ class AgentMemoryService:
                 entry.input_data,
                 entry.output_data,
                 entry.status,
-                json.dumps(entry.metadata)
+                json.dumps(entry.metadata),
+                user_id
             )
             data = dict(row)
             if isinstance(data.get("metadata"), str):
@@ -126,7 +135,11 @@ class AgentMemoryService:
             await self.db.release_conn(conn)
 
     async def get_executions(
-        self, agent_id: Optional[str] = None, status: Optional[str] = None, task_id: Optional[str] = None
+        self,
+        user_id: str,
+        agent_id: Optional[str] = None,
+        status: Optional[str] = None,
+        task_id: Optional[str] = None
     ) -> List[AgentExecutionEntry]:
         if not self.has_pool:
             return []
@@ -135,11 +148,13 @@ class AgentMemoryService:
             rows = await conn.fetch(
                 """
                 SELECT id, agent_id, task_id, input_data, output_data, status, metadata, created_at FROM agent_executions
-                WHERE ($1::text IS NULL OR agent_id = $1)
-                  AND ($2::text IS NULL OR status = $2)
-                  AND ($3::text IS NULL OR task_id = $3)
+                WHERE user_id = $1
+                  AND ($2::text IS NULL OR agent_id = $2)
+                  AND ($3::text IS NULL OR status = $3)
+                  AND ($4::text IS NULL OR task_id = $4)
                 ORDER BY created_at DESC
                 """,
+                user_id,
                 agent_id,
                 status,
                 task_id
@@ -154,29 +169,33 @@ class AgentMemoryService:
         finally:
             await self.db.release_conn(conn)
 
-    async def save_decision(self, entry: AgentDecisionEntry) -> AgentDecisionEntry:
+    async def save_decision(self, entry: AgentDecisionEntry, user_id: str) -> AgentDecisionEntry:
         if not self.has_pool:
             raise RuntimeError("Database pool not initialized")
         conn = await self.db.get_conn()
         try:
             row = await conn.fetchrow(
                 """
-                INSERT INTO agent_decisions (execution_id, agent_id, decision, reasoning, outcome)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO agent_decisions (execution_id, agent_id, decision, reasoning, outcome, user_id)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING id, execution_id, agent_id, decision, reasoning, outcome, created_at
                 """,
                 entry.execution_id,
                 entry.agent_id,
                 entry.decision,
                 entry.reasoning,
-                entry.outcome
+                entry.outcome,
+                user_id
             )
             return AgentDecisionEntry(**dict(row))
         finally:
             await self.db.release_conn(conn)
 
     async def get_decisions(
-        self, execution_id: Optional[UUID] = None, agent_id: Optional[str] = None
+        self,
+        user_id: str,
+        execution_id: Optional[UUID] = None,
+        agent_id: Optional[str] = None
     ) -> List[AgentDecisionEntry]:
         if not self.has_pool:
             return []
@@ -185,10 +204,12 @@ class AgentMemoryService:
             rows = await conn.fetch(
                 """
                 SELECT id, execution_id, agent_id, decision, reasoning, outcome, created_at FROM agent_decisions
-                WHERE ($1::uuid IS NULL OR execution_id = $1)
-                  AND ($2::text IS NULL OR agent_id = $2)
+                WHERE user_id = $1
+                  AND ($2::uuid IS NULL OR execution_id = $2)
+                  AND ($3::text IS NULL OR agent_id = $3)
                 ORDER BY created_at DESC
                 """,
+                user_id,
                 execution_id,
                 agent_id
             )
@@ -197,7 +218,11 @@ class AgentMemoryService:
             await self.db.release_conn(conn)
 
     async def semantic_search_memories(
-        self, query: str, agent_id: Optional[str] = None, limit: int = 5
+        self,
+        query: str,
+        user_id: str,
+        agent_id: Optional[str] = None,
+        limit: int = 5
     ) -> List[tuple[AgentMemoryEntry, float]]:
         if not self.has_pool:
             return []
@@ -212,12 +237,14 @@ class AgentMemoryService:
                 SELECT id, agent_id, context, summary, learned_info, tags, embedding, created_at,
                        1 - (embedding <=> $1::vector) AS similarity_score
                 FROM agent_memories
-                WHERE ($2::text IS NULL OR agent_id = $2)
+                WHERE user_id = $2
+                  AND ($3::text IS NULL OR agent_id = $3)
                   AND embedding IS NOT NULL
                 ORDER BY embedding <=> $1::vector ASC
-                LIMIT $3
+                LIMIT $4
                 """,
                 _vector_literal(query_vector),
+                user_id,
                 agent_id,
                 limit
             )
@@ -234,17 +261,26 @@ class AgentMemoryService:
             await self.db.release_conn(conn)
 
     async def get_historical_context(
-        self, agent_id: str, task: str, tags: Optional[List[str]] = None
+        self,
+        user_id: str,
+        agent_id: str,
+        task: str,
+        tags: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Retrieves relevant historical executions, memories, and decisions to assist
         the agent in learning from prior runs.
         """
         # Fetch relevant memories by tags/metadata
-        memories = await self.get_memories(agent_id=agent_id, tags=tags)
+        memories = await self.get_memories(user_id=user_id, agent_id=agent_id, tags=tags)
         
         # ALSO fetch memories via semantic similarity lookup on the task
-        semantic_results = await self.semantic_search_memories(task, agent_id=agent_id, limit=5)
+        semantic_results = await self.semantic_search_memories(
+            task,
+            user_id=user_id,
+            agent_id=agent_id,
+            limit=5
+        )
         semantic_memories = [m for m, score in semantic_results]
         
         # Combine and deduplicate memories by ID
@@ -254,11 +290,16 @@ class AgentMemoryService:
                 combined_memories[sm.id] = sm
         
         # Fetch successful past executions for this agent
-        executions = await self.get_executions(agent_id=agent_id, status="success", task_id=task)
+        executions = await self.get_executions(
+            user_id=user_id,
+            agent_id=agent_id,
+            status="success",
+            task_id=task
+        )
         
         # If no executions directly matching task, retrieve successful ones for agent in general
         if not executions:
-            executions = await self.get_executions(agent_id=agent_id, status="success")
+            executions = await self.get_executions(user_id=user_id, agent_id=agent_id, status="success")
             # Limit to top 5 recent successful runs
             executions = executions[:5]
 
@@ -272,9 +313,11 @@ class AgentMemoryService:
                     rows = await conn.fetch(
                         """
                         SELECT id, execution_id, agent_id, decision, reasoning, outcome, created_at FROM agent_decisions
-                        WHERE execution_id = ANY($1::uuid[])
+                        WHERE user_id = $1
+                          AND execution_id = ANY($2::uuid[])
                         ORDER BY created_at DESC
                         """,
+                        user_id,
                         exec_ids
                     )
                     decisions = [AgentDecisionEntry(**dict(row)) for row in rows]

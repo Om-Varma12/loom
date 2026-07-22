@@ -27,6 +27,7 @@ function AgentGrid({
   const [showAllAgents, setShowAllAgents] = useState(false)
   const [agents, setAgents] = useState<AgentData[]>([])
   const [pendingAgentId, setPendingAgentId] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -36,9 +37,13 @@ function AgentGrid({
         const data = await getAgents(forceRefresh)
         if (active) {
           setAgents(data)
+          setLoadError(null)
         }
       } catch (error) {
         console.error('Failed to fetch agents', error)
+        if (active) {
+          setLoadError(error instanceof Error ? error.message : 'Failed to fetch agents')
+        }
       }
     }
 
@@ -123,9 +128,10 @@ function AgentGrid({
       await downloadAgent(agentId)
       const refreshedAgents = await getAgents(true)
       setAgents(refreshedAgents)
-    } catch (error) {
-      console.error('Failed to download agent', error)
-    } finally {
+      } catch (error) {
+        console.error('Failed to download agent', error)
+        setLoadError(error instanceof Error ? error.message : 'Failed to download agent')
+      } finally {
       setPendingAgentId(null)
     }
   }
@@ -136,9 +142,10 @@ function AgentGrid({
       await uninstallAgent(agentId)
       const refreshedAgents = await getAgents(true)
       setAgents(refreshedAgents)
-    } catch (error) {
-      console.error('Failed to uninstall agent', error)
-    } finally {
+      } catch (error) {
+        console.error('Failed to uninstall agent', error)
+        setLoadError(error instanceof Error ? error.message : 'Failed to uninstall agent')
+      } finally {
       setPendingAgentId(null)
     }
   }
@@ -180,7 +187,9 @@ function AgentGrid({
         <div className="agent-empty-state">
           <MaterialIcon name="filter_alt_off" />
           <p>
-            {normalizedSearch
+            {loadError
+              ? `Unable to load agents: ${loadError}`
+              : normalizedSearch
               ? 'No agents match this search and filter.'
               : 'No agents match this filter yet.'}
           </p>

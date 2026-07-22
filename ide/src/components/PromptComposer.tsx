@@ -8,7 +8,12 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { getProjects, developProject, type Project } from "../lib/projects";
+import {
+  createProject,
+  getProjects,
+  developProject,
+  type Project,
+} from "../lib/projects";
 import { getDownloadedAgents, type AgentData } from "../lib/agents";
 import { getThemes, type ThemeMetadata } from "../lib/themes";
 
@@ -112,25 +117,11 @@ function PromptComposer({
       setDevelopError("");
       setDevelopSuccess("");
       try {
-        const response = await fetch(
-          `${import.meta.env.VITE_BACKEND_ADDR ?? import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000"}/projects`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              name: newProjectName.trim(),
-              description: `Created for: ${prompt.trim().substring(0, 100)}`,
-              agent_ids: selectedAgents,
-            }),
-          },
-        );
-        if (!response.ok) {
-          const errText = await response.text();
-          throw new Error(errText || "Failed to create new project");
-        }
-        const newProj = await response.json();
+        const newProj = await createProject({
+          name: newProjectName.trim(),
+          description: `Created for: ${prompt.trim().substring(0, 100)}`,
+          agent_ids: selectedAgents,
+        });
         projectIdToDevelop = newProj.project_id;
         // Dispatch event to notify Sidebar and other components
         window.dispatchEvent(new CustomEvent("project-created"));

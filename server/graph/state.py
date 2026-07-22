@@ -2,6 +2,7 @@ from typing import TypedDict, Optional
 
 
 class LoomState(TypedDict):
+    user_id: str
     project_id: str
     project_name: str
     goal: str
@@ -54,4 +55,3 @@ class LoomState(TypedDict):
     # Shape: {"dirs": ["backend/api", "backend/db", ...], "file_hints": {"path": "description"}}
     # Pre-created inside the sandbox before any executor runs.
     folder_structure: Optional[dict]
-

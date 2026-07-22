@@ -1,8 +1,14 @@
-const API_BASE_URL = import.meta.env.VITE_BACKEND_ADDR ?? import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
+import {
+  apiUrl,
+  authFetch,
+  registerAuthCacheResetter,
+} from './authFetch'
 
 export type Project = {
   id: string
   name: string
+  description?: string | null
+  agent_ids?: string[]
 }
 
 let cachedProjects: Project[] | null = null
@@ -11,6 +17,40 @@ let projectsFetchPromise: Promise<Project[]> | null = null
 export function invalidateProjectsCache() {
   cachedProjects = null
   projectsFetchPromise = null
+}
+
+export async function createProject(input: {
+  name: string
+  description?: string | null
+  agent_ids: string[]
+}): Promise<{ project_id: string; name: string; description: string | null; status: string }> {
+  const response = await authFetch(apiUrl('/projects'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(errorText || 'Failed to create project')
+  }
+
+  invalidateProjectsCache()
+  return response.json()
+}
+
+export async function getProject(projectId: string): Promise<Project> {
+  const response = await authFetch(apiUrl(`/projects/${projectId}`), {
+    method: 'GET',
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch project')
+  }
+
+  return response.json()
 }
 
 export async function getProjects(forceRefresh = false): Promise<Project[]> {
@@ -28,7 +68,7 @@ export async function getProjects(forceRefresh = false): Promise<Project[]> {
 
   projectsFetchPromise = (async () => {
     try {
-      const response = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/projects/get-projects`, {
+      const response = await authFetch(apiUrl('/projects/get-projects'), {
         method: 'POST',
       })
 
@@ -65,6 +105,11 @@ export function invalidateChatsCache() {
   chatsFetchPromise = null
 }
 
+registerAuthCacheResetter(() => {
+  invalidateProjectsCache()
+  invalidateChatsCache()
+})
+
 export async function getChats(forceRefresh = false): Promise<Chat[]> {
   if (forceRefresh) {
     invalidateChatsCache()
@@ -80,7 +125,7 @@ export async function getChats(forceRefresh = false): Promise<Chat[]> {
 
   chatsFetchPromise = (async () => {
     try {
-      const response = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/chats/get-chats`, {
+      const response = await authFetch(apiUrl('/chats/get-chats'), {
         method: 'POST',
       })
 
@@ -114,7 +159,7 @@ export type ChatDetail = {
 }
 
 export async function getChatDetail(sessionId: string): Promise<ChatDetail> {
-  const response = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/chats/get-chat/${sessionId}`, {
+  const response = await authFetch(apiUrl(`/chats/get-chat/${sessionId}`), {
     method: 'GET',
   })
 
@@ -133,7 +178,7 @@ export async function developProject(
   chatSessionId?: string | null,
   themeId?: string | null,
 ): Promise<any> {
-  const response = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/projects/develop`, {
+  const response = await authFetch(apiUrl('/projects/develop'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -170,7 +215,7 @@ export async function developProjectStream(
   chatSessionId?: string | null,
   themeId?: string | null,
 ): Promise<void> {
-  const response = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/projects/develop`, {
+  const response = await authFetch(apiUrl('/projects/develop'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -238,7 +283,7 @@ export type FileContentResponse = {
 }
 
 export async function getWorkspaceTree(projectId: string): Promise<FileTreeNode[]> {
-  const response = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/workspace/${projectId}/tree`, {
+  const response = await authFetch(apiUrl(`/workspace/${projectId}/tree`), {
     method: 'GET',
   })
   if (!response.ok) {
@@ -249,7 +294,7 @@ export async function getWorkspaceTree(projectId: string): Promise<FileTreeNode[
 
 export async function getFileContent(projectId: string, path: string): Promise<FileContentResponse> {
   const encodedPath = encodeURIComponent(path)
-  const response = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/workspace/${projectId}/file?path=${encodedPath}`, {
+  const response = await authFetch(apiUrl(`/workspace/${projectId}/file?path=${encodedPath}`), {
     method: 'GET',
   })
   if (!response.ok) {
@@ -259,7 +304,7 @@ export async function getFileContent(projectId: string, path: string): Promise<F
 }
 
 export async function saveFileContent(projectId: string, path: string, content: string): Promise<any> {
-  const response = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/workspace/${projectId}/file`, {
+  const response = await authFetch(apiUrl(`/workspace/${projectId}/file`), {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -275,6 +320,22 @@ export async function saveFileContent(projectId: string, path: string, content: 
   return response.json()
 }
 
-export function getDownloadUrl(projectId: string): string {
-  return `${API_BASE_URL.replace(/\/$/, '')}/workspace/${projectId}/download`
+export async function downloadWorkspaceZip(projectId: string, projectName: string): Promise<void> {
+  const response = await authFetch(apiUrl(`/workspace/${projectId}/download`), {
+    method: 'GET',
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to download workspace')
+  }
+
+  const blob = await response.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = `${projectName || 'workspace'}_workspace.zip`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
 }

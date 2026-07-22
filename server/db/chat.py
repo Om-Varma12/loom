@@ -120,6 +120,25 @@ class ChatRepository:
         row = await conn.fetchrow(query, session_id)
         return dict(row) if row else None
 
+    async def get_chat_session_for_user(
+        self,
+        conn,
+        session_id: str,
+        user_id: str
+    ):
+        """
+        Returns a single chat session only when its project belongs to the user.
+        """
+        query = """
+        SELECT cs.id, cs.project_id, cs.title, cs.created_at, cs.updated_at
+        FROM chat_sessions cs
+        INNER JOIN projects p ON p.id = cs.project_id
+        WHERE cs.id = $1
+          AND p.user_id = $2
+        """
+        row = await conn.fetchrow(query, session_id, user_id)
+        return dict(row) if row else None
+
     async def get_chat_messages(
         self,
         conn,

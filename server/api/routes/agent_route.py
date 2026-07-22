@@ -1,8 +1,8 @@
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from config.contant import DEV_USER_ID
+from dependencies.auth_dep import CurrentUser, get_current_user
 from db.user_agent import UserAgentRepository
 
 from db.database import database
@@ -129,83 +129,101 @@ AGENT_METADATA = {
     },
 }
 
+async def _build_agent_list(conn, user_id: str):
+    agent_rows = await conn.fetch("SELECT * FROM agents")
+    source_rows = await conn.fetch("SELECT agent_id, url FROM agent_sources WHERE is_active = TRUE")
+    downloaded_agent_ids = await user_agent_repository.get_downloaded_agent_ids(conn, user_id)
+
+    sources_by_agent = {}
+    for source in source_rows:
+        agent_id_str = str(source["agent_id"])
+        sources_by_agent.setdefault(agent_id_str, []).append(source["url"])
+
+    agents = []
+    for row in agent_rows:
+        agent_dict = dict(row)
+        agent_id_str = str(agent_dict["id"])
+
+        agent_type = "Core" if agent_dict.get("is_core", True) else "Community"
+
+        version = agent_dict.get("version", "1.0.0")
+        if version and not version.startswith("v"):
+            version = f"v{version}"
+
+        metadata = AGENT_METADATA.get(agent_id_str, {
+            "rating": "4.5",
+            "icon": "smart_toy",
+            "tone": "blue",
+            "category": "AI",
+            "synced": "Synced just now",
+            "installs": "0",
+        })
+
+        agents.append({
+            "id": agent_id_str,
+            "name": agent_dict["name"],
+            "version": version,
+            "type": agent_type,
+            "description": agent_dict.get("description") or "",
+            "sources": sources_by_agent.get(agent_id_str, []),
+            "rating": metadata["rating"],
+            "icon": metadata["icon"],
+            "tone": metadata["tone"],
+            "category": metadata["category"],
+            "synced": metadata["synced"],
+            "installs": metadata["installs"],
+            "createdAt": agent_dict.get("created_at").isoformat() if agent_dict.get("created_at") else None,
+            "syncedAt": (
+                agent_dict.get("last_kb_update") or agent_dict.get("updated_at")
+            ).isoformat() if (agent_dict.get("last_kb_update") or agent_dict.get("updated_at")) else None,
+            "downloaded": agent_id_str in downloaded_agent_ids,
+        })
+
+    return agents
+
+
 @router.get("")
-async def get_agents():
+async def get_agents(current_user: CurrentUser = Depends(get_current_user)):
     conn = await database.get_conn()
     try:
-        agent_rows = await conn.fetch("SELECT * FROM agents")
-        source_rows = await conn.fetch("SELECT agent_id, url FROM agent_sources WHERE is_active = TRUE")
-        downloaded_agent_ids = await user_agent_repository.get_downloaded_agent_ids(conn, DEV_USER_ID)
-        
-        sources_by_agent = {}
-        for s in source_rows:
-            agent_id_str = str(s["agent_id"])
-            if agent_id_str not in sources_by_agent:
-                sources_by_agent[agent_id_str] = []
-            sources_by_agent[agent_id_str].append(s["url"])
-            
-        agents = []
-        for row in agent_rows:
-            agent_dict = dict(row)
-            agent_id_str = str(agent_dict["id"])
-            
-            agent_type = "Core" if agent_dict.get("is_core", True) else "Community"
-            
-            version = agent_dict.get("version", "1.0.0")
-            if version and not version.startswith("v"):
-                version = f"v{version}"
-                
-            metadata = AGENT_METADATA.get(agent_id_str, {
-                "rating": "4.5",
-                "icon": "smart_toy",
-                "tone": "blue",
-                "category": "AI",
-                "synced": "Synced just now",
-                "installs": "0",
-            })
-            
-            agents.append({
-                "id": agent_id_str,
-                "name": agent_dict["name"],
-                "version": version,
-                "type": agent_type,
-                "description": agent_dict.get("description") or "",
-                "sources": sources_by_agent.get(agent_id_str, []),
-                "rating": metadata["rating"],
-                "icon": metadata["icon"],
-                "tone": metadata["tone"],
-                "category": metadata["category"],
-                "synced": metadata["synced"],
-                "installs": metadata["installs"],
-                "createdAt": agent_dict.get("created_at").isoformat() if agent_dict.get("created_at") else None,
-                "syncedAt": (
-                    agent_dict.get("last_kb_update") or agent_dict.get("updated_at")
-                ).isoformat() if (agent_dict.get("last_kb_update") or agent_dict.get("updated_at")) else None,
-                "downloaded": agent_id_str in downloaded_agent_ids,
-            })
-            
-        return agents
+        return await _build_agent_list(conn, current_user.id)
+    finally:
+        await database.release_conn(conn)
+
+
+@router.get("/downloaded")
+async def get_downloaded_agents(current_user: CurrentUser = Depends(get_current_user)):
+    conn = await database.get_conn()
+    try:
+        agents = await _build_agent_list(conn, current_user.id)
+        return [agent for agent in agents if agent["downloaded"]]
     finally:
         await database.release_conn(conn)
 
 
 @router.post("/{agent_id}/download")
-async def download_agent(agent_id: UUID):
+async def download_agent(
+    agent_id: UUID,
+    current_user: CurrentUser = Depends(get_current_user)
+):
     conn = await database.get_conn()
     try:
         async with conn.transaction():
-            await user_agent_repository.download_agent(conn, DEV_USER_ID, str(agent_id))
+            await user_agent_repository.download_agent(conn, current_user.id, str(agent_id))
         return {"status": "downloaded", "agent_id": str(agent_id)}
     finally:
         await database.release_conn(conn)
 
 
 @router.delete("/{agent_id}/download")
-async def uninstall_agent(agent_id: UUID):
+async def uninstall_agent(
+    agent_id: UUID,
+    current_user: CurrentUser = Depends(get_current_user)
+):
     conn = await database.get_conn()
     try:
         async with conn.transaction():
-            await user_agent_repository.uninstall_agent(conn, DEV_USER_ID, str(agent_id))
+            await user_agent_repository.uninstall_agent(conn, current_user.id, str(agent_id))
         return {"status": "uninstalled", "agent_id": str(agent_id)}
     finally:
         await database.release_conn(conn)

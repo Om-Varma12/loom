@@ -63,18 +63,25 @@ async def planner_node(state: LoomState) -> LoomState:
 
     # Fetch historical context for agents to guide planning
     history_block = ""
+    user_id = state.get("user_id")
     try:
         from knowledge.memory_service import memory_service
         history_items = []
-        for agent in agents_to_plan:
-            resolved_aid = await memory_service.resolve_agent_id(agent)
-            if resolved_aid:
-                memories = await memory_service.get_memories(agent_id=resolved_aid)
+        if user_id:
+            for agent in agents_to_plan:
+                resolved_aid = await memory_service.resolve_agent_id(agent)
+                if not resolved_aid:
+                    continue
+                memories = await memory_service.get_memories(user_id=user_id, agent_id=resolved_aid)
                 for m in memories[:3]:
                     history_items.append(
                         f"- Agent '{agent}' prior learning (Context: {m.context}): {m.learned_info}"
                     )
-                executions = await memory_service.get_executions(agent_id=resolved_aid, status="success")
+                executions = await memory_service.get_executions(
+                    user_id=user_id,
+                    agent_id=resolved_aid,
+                    status="success",
+                )
                 for e in executions[:2]:
                     history_items.append(f"- Agent '{agent}' past successful task: '{e.task_id}'")
         if history_items:

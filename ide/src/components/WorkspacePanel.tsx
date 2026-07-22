@@ -3,7 +3,7 @@ import {
   getWorkspaceTree,
   getFileContent,
   saveFileContent,
-  getDownloadUrl,
+  downloadWorkspaceZip,
   type FileTreeNode
 } from '../lib/projects'
 import FileExplorer from './FileExplorer'
@@ -24,6 +24,7 @@ export default function WorkspacePanel({ projectId, projectName = 'Project', onC
   const [isTreeLoading, setIsTreeLoading] = useState(false)
   const [isFileLoading, setIsFileLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
@@ -87,6 +88,19 @@ export default function WorkspacePanel({ projectId, projectName = 'Project', onC
     }
   }
 
+  const handleDownloadWorkspace = async () => {
+    setIsDownloading(true)
+    setErrorMessage(null)
+    try {
+      await downloadWorkspaceZip(projectId, projectName)
+    } catch (err: any) {
+      console.error(err)
+      setErrorMessage('Failed to download workspace ZIP.')
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
   return (
     <div className="w-full h-full flex flex-col bg-[#141414] border-l border-[#262626]">
       {/* Panel Top Header */}
@@ -112,15 +126,16 @@ export default function WorkspacePanel({ projectId, projectName = 'Project', onC
           </button>
 
           {/* Download Zip button */}
-          <a
-            href={getDownloadUrl(projectId)}
-            download
+          <button
+            onClick={handleDownloadWorkspace}
             className="flex items-center gap-1 bg-tertiary-fixed-dim hover:bg-opacity-95 text-on-tertiary-fixed px-3 py-1.5 rounded text-[12px] font-medium transition-all shadow-md active:scale-95"
+            disabled={isDownloading}
             title="Download full workspace as ZIP"
+            type="button"
           >
             <span className="material-symbols-outlined text-[16px]">download</span>
-            <span>Download ZIP</span>
-          </a>
+            <span>{isDownloading ? 'Downloading...' : 'Download ZIP'}</span>
+          </button>
 
           {onClose && (
             <button

@@ -65,6 +65,30 @@ class ProjectRepository:
 
         return dict(row)
 
+    async def get_project_by_id_for_user(
+        self,
+        conn,
+        project_id: str,
+        user_id: str
+    ):
+        query = """
+        SELECT *
+        FROM projects
+        WHERE id = $1
+          AND user_id = $2
+        """
+
+        row = await conn.fetchrow(
+            query,
+            project_id,
+            user_id
+        )
+
+        if not row:
+            return None
+
+        return dict(row)
+
 
     async def get_projects(
         self,

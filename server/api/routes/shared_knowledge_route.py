@@ -1,13 +1,21 @@
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from typing import Any, Dict, List
 from knowledge.sync_manager import sync_manager
 from knowledge.schema import KnowledgeEntry
+from dependencies.auth_dep import CurrentUser, get_current_user
 
-router = APIRouter(prefix="/knowledge", tags=["knowledge"])
+router = APIRouter(
+    prefix="/knowledge",
+    tags=["knowledge"],
+    dependencies=[Depends(get_current_user)],
+)
 
 @router.post("/add")
-async def add_knowledge(entry: Dict[str, Any]):
-    res = await sync_manager.add_knowledge(entry)
+async def add_knowledge(
+    entry: Dict[str, Any],
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    res = await sync_manager.add_knowledge(entry, current_user.id)
     if not res.get("success"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -16,12 +24,15 @@ async def add_knowledge(entry: Dict[str, Any]):
     return res
 
 @router.get("/get", response_model=List[KnowledgeEntry])
-async def get_knowledge():
-    return await sync_manager.get_all()
+async def get_knowledge(current_user: CurrentUser = Depends(get_current_user)):
+    return await sync_manager.get_all(current_user.id)
 
 @router.get("/tags/{tag}", response_model=List[KnowledgeEntry])
-async def get_knowledge_by_tag(tag: str):
-    return await sync_manager.get_by_tag(tag)
+async def get_knowledge_by_tag(
+    tag: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    return await sync_manager.get_by_tag(tag, current_user.id)
 
 @router.post("/sources/add")
 async def add_agent_source(payload: Dict[str, Any]):
@@ -83,9 +94,17 @@ async def refresh_sources():
     return await update_pipeline.run_refresh_cycle()
 
 @router.get("/search")
-async def search_shared_knowledge(query: str = Query(...), limit: int = Query(5)):
+async def search_shared_knowledge(
+    query: str = Query(...),
+    limit: int = Query(5),
+    current_user: CurrentUser = Depends(get_current_user)
+):
     try:
-        results = await sync_manager.semantic_search_shared_knowledge(query, limit)
+        results = await sync_manager.semantic_search_shared_knowledge(
+            query,
+            current_user.id,
+            limit
+        )
         return [
             {
                 "entry": entry,
@@ -98,4 +117,3 @@ async def search_shared_knowledge(query: str = Query(...), limit: int = Query(5)
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Shared knowledge semantic search failed: {e}"
         )
-

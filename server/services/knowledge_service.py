@@ -165,27 +165,31 @@ class KnowledgeService:
         agent_name_or_id: str,
         content: str,
         metadata: dict[str, Any] | None = None,
+        user_id: str | None = None,
     ) -> None:
         """Saves a self-generated agent memory/reflection to the agent_knowledge table."""
+        if not user_id:
+            return
         conn = await self.db.get_conn()
         try:
             agent_id = await self._resolve_agent_id(conn, agent_name_or_id)
             if not agent_id:
                 raise ValueError(f"Could not resolve agent for identifier: {agent_name_or_id}")
 
-            memory_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            memory_hash = hashlib.sha256(f"{user_id}:{content}".encode("utf-8")).hexdigest()
             embedding = await embedding_provider.encode(content)
             metadata = metadata or {}
 
             await conn.execute(
                 """
                 INSERT INTO agent_knowledge (
-                    agent_id, source_type, content, content_hash, embedding, metadata
+                    agent_id, source_type, content, content_hash, embedding, metadata, user_id
                 )
-                VALUES ($1, 'long_term_memory', $2, $3, $4::vector, $5)
+                VALUES ($1, 'long_term_memory', $2, $3, $4::vector, $5, $6)
                 ON CONFLICT (agent_id, content_hash)
                 DO UPDATE SET
                     metadata = EXCLUDED.metadata,
+                    user_id = EXCLUDED.user_id,
                     created_at = NOW()
                 """,
                 uuid.UUID(agent_id),
@@ -193,6 +197,7 @@ class KnowledgeService:
                 memory_hash,
                 _vector_literal(embedding),
                 json.dumps(metadata),
+                user_id,
             )
         finally:
             await self.db.release_conn(conn)
@@ -202,8 +207,11 @@ class KnowledgeService:
         agent_name_or_id: str,
         query_text: str,
         limit: int = 3,
+        user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Retrieves semantically similar long-term memories/reflections for an agent."""
+        if not user_id:
+            return []
         conn = await self.db.get_conn()
         try:
             agent_id = await self._resolve_agent_id(conn, agent_name_or_id)
@@ -216,13 +224,16 @@ class KnowledgeService:
                 """
                 SELECT content, metadata, 1 - (embedding <=> $2::vector) AS similarity
                 FROM agent_knowledge
-                WHERE agent_id = $1 AND source_type = 'long_term_memory'
+                WHERE agent_id = $1
+                  AND source_type = 'long_term_memory'
+                  AND user_id = $4
                 ORDER BY embedding <=> $2::vector
                 LIMIT $3
                 """,
                 uuid.UUID(agent_id),
                 _vector_literal(query_embedding),
                 limit,
+                user_id,
             )
             return [dict(row) for row in rows]
         finally:
@@ -233,19 +244,26 @@ class KnowledgeService:
         agent_name: str,
         chat_session_id: str,
         limit: int = 2,
+        user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Retrieves successful outputs/results from previous runs of this agent
         belonging to the same project.
         """
-        if not chat_session_id:
+        if not chat_session_id or not user_id:
             return []
         conn = await self.db.get_conn()
         try:
             # 1. Fetch project ID for the active chat session
             session_row = await conn.fetchrow(
-                "SELECT project_id FROM chat_sessions WHERE id = $1",
+                """
+                SELECT cs.project_id
+                FROM chat_sessions cs
+                INNER JOIN projects p ON p.id = cs.project_id
+                WHERE cs.id = $1 AND p.user_id = $2
+                """,
                 uuid.UUID(chat_session_id),
+                user_id,
             )
             if not session_row:
                 return []
@@ -256,7 +274,10 @@ class KnowledgeService:
                 """
                 SELECT r.agent_id, r.output_json, r.score, r.created_at
                 FROM pipeline_agent_results r
-                WHERE r.agent_id = $1 AND r.status = 'success' AND r.run_id IN (
+                WHERE r.agent_id = $1
+                  AND r.status = 'success'
+                  AND r.user_id = $4
+                  AND r.run_id IN (
                     SELECT id::text FROM chat_sessions WHERE project_id = $2
                 )
                 ORDER BY r.created_at DESC
@@ -265,6 +286,7 @@ class KnowledgeService:
                 agent_name,
                 project_id,
                 limit,
+                user_id,
             )
             return [dict(row) for row in rows]
         except Exception as exc:
@@ -278,45 +300,56 @@ class KnowledgeService:
         agent_name: str,
         chat_session_id: str,
         output: str,
+        user_id: str | None = None,
     ) -> None:
         """
         Saves the successful execution run of an agent under a chat session,
         ensuring a valid execution plan reference exists.
         Runs inside an atomic transaction block.
         """
-        if not chat_session_id or not output:
+        if not chat_session_id or not output or not user_id:
             return
         conn = await self.db.get_conn()
         try:
             # 1. Retrieve session title for task label
             session_row = await conn.fetchrow(
-                "SELECT title FROM chat_sessions WHERE id = $1",
+                """
+                SELECT cs.title
+                FROM chat_sessions cs
+                INNER JOIN projects p ON p.id = cs.project_id
+                WHERE cs.id = $1 AND p.user_id = $2
+                """,
                 uuid.UUID(chat_session_id),
+                user_id,
             )
+            if not session_row:
+                return
             task_label = session_row["title"] if session_row else "Developer Workspace Task"
 
             async with conn.transaction():
                 # 2. Ensure pipeline execution plan reference exists for run_id
                 await conn.execute(
                     """
-                    INSERT INTO pipeline_execution_plans (run_id, task, plan_json, status)
-                    VALUES ($1, $2, '{}'::jsonb, 'success')
-                    ON CONFLICT (run_id) DO UPDATE SET updated_at = NOW()
+                    INSERT INTO pipeline_execution_plans (run_id, task, plan_json, status, user_id)
+                    VALUES ($1, $2, '{}'::jsonb, 'success', $3)
+                    ON CONFLICT (run_id) DO UPDATE SET updated_at = NOW(), user_id = EXCLUDED.user_id
                     """,
                     chat_session_id,
                     task_label,
+                    user_id,
                 )
 
                 # 3. Insert results output JSON mapping
                 output_payload = {"output": output}
                 await conn.execute(
                     """
-                    INSERT INTO pipeline_agent_results (run_id, agent_id, status, output_json, score, attempt_count)
-                    VALUES ($1, $2, 'success', $3::jsonb, 1.0, 1)
+                    INSERT INTO pipeline_agent_results (run_id, agent_id, status, output_json, score, attempt_count, user_id)
+                    VALUES ($1, $2, 'success', $3::jsonb, 1.0, 1, $4)
                     """,
                     chat_session_id,
                     agent_name,
                     json.dumps(output_payload),
+                    user_id,
                 )
         except Exception as exc:
             logger.warning("Failed to record agent execution run: %s", exc)
@@ -330,18 +363,20 @@ class KnowledgeService:
         chat_session_id: str,
         task: str,
         output: str,
+        user_id: str | None = None,
     ) -> None:
         """
         Processes callbacks after a successful agent execution:
         records the execution output and saves task learning summary to long-term memory.
         """
-        await self.record_agent_run(agent_name, chat_session_id, output)
+        await self.record_agent_run(agent_name, chat_session_id, output, user_id=user_id)
         
         learning_text = f"Successfully completed task: '{task}'. Key deliverables: generated/modified file structures."
         await self.record_agent_memory(
             agent_name_or_id=agent_name,
             content=learning_text,
             metadata={"task": task, "session_id": chat_session_id},
+            user_id=user_id,
         )
 
     async def prepare_agent_context(
@@ -349,6 +384,7 @@ class KnowledgeService:
         agent_name: str,
         chat_session_id: str,
         task: str,
+        user_id: str | None = None,
     ) -> str:
         """
         Prepares and formats semantic knowledge, memories, and execution history
@@ -368,8 +404,8 @@ class KnowledgeService:
 
         # Run all retrieval operations in parallel
         knowledge_task = self.retrieve_knowledge(agent_name, task, limit=2)
-        memory_task = self.retrieve_agent_memories(agent_name, task, limit=2)
-        history_task = self.retrieve_execution_history(agent_name, chat_session_id, limit=2)
+        memory_task = self.retrieve_agent_memories(agent_name, task, limit=2, user_id=user_id)
+        history_task = self.retrieve_execution_history(agent_name, chat_session_id, limit=2, user_id=user_id)
 
         knowledge_items, memory_items, history_items = await asyncio.gather(
             knowledge_task, memory_task, history_task, return_exceptions=True
@@ -379,10 +415,10 @@ class KnowledgeService:
         new_memories = []
         new_executions = []
         new_decisions = []
-        if agent_id:
+        if agent_id and user_id:
             try:
                 from knowledge.memory_service import memory_service
-                context_data = await memory_service.get_historical_context(agent_id, task)
+                context_data = await memory_service.get_historical_context(user_id, agent_id, task)
                 new_memories = context_data.get("memories", [])
                 new_executions = context_data.get("executions", [])
                 new_decisions = context_data.get("decisions", [])
@@ -393,9 +429,10 @@ class KnowledgeService:
         shared_knowledge_items = []
         try:
             from knowledge.sync_manager import sync_manager
-            # Fetch up to 3 relevant shared knowledge entries
-            shared_results = await sync_manager.semantic_search_shared_knowledge(task, limit=3)
-            shared_knowledge_items = [entry for entry, score in shared_results]
+            if user_id:
+                # Fetch up to 3 relevant user-owned shared knowledge entries.
+                shared_results = await sync_manager.semantic_search_shared_knowledge(task, user_id=user_id, limit=3)
+                shared_knowledge_items = [entry for entry, score in shared_results]
         except Exception as se:
             logger.warning("Failed to retrieve shared knowledge for context: %s", se)
 

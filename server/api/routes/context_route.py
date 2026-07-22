@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
 from context_system.models import (
     ContextAnalyzeRequest,
@@ -12,9 +12,14 @@ from context_system.models import (
 )
 from context_system.repo_watcher import repo_watcher_manager
 from context_system.service import context_system
+from dependencies.auth_dep import get_current_user, verify_clerk_token
 
 
-router = APIRouter(prefix="/context", tags=["Context"])
+router = APIRouter(
+    prefix="/context",
+    tags=["Context"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post("/analyze", response_model=ContextPayload)
@@ -46,6 +51,17 @@ async def context_status(repo_path: str):
 
 @router.websocket("/watch")
 async def watch_context(websocket: WebSocket):
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=1008)
+        return
+
+    try:
+        verify_clerk_token(token)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
+
     await websocket.accept()
     try:
         first_message = await websocket.receive_json()

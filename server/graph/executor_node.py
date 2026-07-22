@@ -247,6 +247,7 @@ async def executor_node(state: LoomState) -> LoomState:
 
     # ── Prepare knowledge/memory context ─────────────────────────────────────
     chat_session_id = state.get("chat_session_id")
+    user_id = state.get("user_id")
     knowledge_block = ""
     if chat_session_id:
         try:
@@ -254,6 +255,7 @@ async def executor_node(state: LoomState) -> LoomState:
                 agent_name=agent_name,
                 chat_session_id=chat_session_id,
                 task=task,
+                user_id=user_id,
             )
         except Exception as exc:
             logger.warning("[Executor] Failed to prepare knowledge context: %s", exc)
@@ -379,6 +381,7 @@ Project ID to use in your tool calls: {project_id}
                     chat_session_id=chat_session_id,
                     task=task,
                     output=output,
+                    user_id=user_id,
                 )
             except Exception as db_exc:
                 logger.warning("[Executor] Failed to record execution details: %s", db_exc)
@@ -389,7 +392,7 @@ Project ID to use in your tool calls: {project_id}
             from knowledge.reflection import MemoryReflectionEngine
 
             resolved_aid = await memory_service.resolve_agent_id(agent_name)
-            if resolved_aid:
+            if resolved_aid and user_id:
                 exec_entry = AgentExecutionEntry(
                     agent_id=resolved_aid,
                     task_id=task,
@@ -398,7 +401,7 @@ Project ID to use in your tool calls: {project_id}
                     status="success",
                     metadata={"chat_session_id": chat_session_id or "local-run"}
                 )
-                saved_exec = await memory_service.save_execution(exec_entry)
+                saved_exec = await memory_service.save_execution(exec_entry, user_id)
 
                 reflections = await MemoryReflectionEngine.extract_reflections(task, output)
 
@@ -409,7 +412,7 @@ Project ID to use in your tool calls: {project_id}
                     reasoning=reflections["reasoning"],
                     outcome=reflections["outcome"]
                 )
-                await memory_service.save_decision(decision_entry)
+                await memory_service.save_decision(decision_entry, user_id)
 
                 memory_entry = AgentMemoryEntry(
                     agent_id=resolved_aid,
@@ -418,7 +421,7 @@ Project ID to use in your tool calls: {project_id}
                     learned_info=reflections["learned_info"],
                     tags=["execution_learning", agent_name]
                 )
-                await memory_service.save_memory(memory_entry)
+                await memory_service.save_memory(memory_entry, user_id)
 
                 try:
                     from knowledge.sync_manager import sync_manager
@@ -434,7 +437,7 @@ Project ID to use in your tool calls: {project_id}
                         "priority":     "medium",
                         "tags":         ["agent_sharing", agent_name]
                     }
-                    await sync_manager.add_knowledge(shared_entry)
+                    await sync_manager.add_knowledge(shared_entry, user_id)
                 except Exception as se:
                     logger.warning("[Executor] Failed to share knowledge dynamically: %s", se)
         except Exception as pe:
@@ -466,7 +469,7 @@ Project ID to use in your tool calls: {project_id}
             from knowledge.reflection import MemoryReflectionEngine
 
             resolved_aid = await memory_service.resolve_agent_id(agent_name)
-            if resolved_aid:
+            if resolved_aid and user_id:
                 exec_entry = AgentExecutionEntry(
                     agent_id=resolved_aid,
                     task_id=task,
@@ -475,7 +478,7 @@ Project ID to use in your tool calls: {project_id}
                     status="failure",
                     metadata={"chat_session_id": chat_session_id or "local-run"}
                 )
-                saved_exec = await memory_service.save_execution(exec_entry)
+                saved_exec = await memory_service.save_execution(exec_entry, user_id)
 
                 reflections = await MemoryReflectionEngine.extract_reflections(
                     task, f"ERROR: {error_msg}", error_logs=error_msg
@@ -488,7 +491,7 @@ Project ID to use in your tool calls: {project_id}
                     reasoning=reflections["reasoning"],
                     outcome=reflections["outcome"]
                 )
-                await memory_service.save_decision(decision_entry)
+                await memory_service.save_decision(decision_entry, user_id)
 
                 memory_entry = AgentMemoryEntry(
                     agent_id=resolved_aid,
@@ -497,7 +500,7 @@ Project ID to use in your tool calls: {project_id}
                     learned_info=reflections["learned_info"],
                     tags=["execution_failure", agent_name]
                 )
-                await memory_service.save_memory(memory_entry)
+                await memory_service.save_memory(memory_entry, user_id)
         except Exception as db_err:
             logger.warning("[Executor] Failed to write Phase 2 failure logs: %s", db_err)
 

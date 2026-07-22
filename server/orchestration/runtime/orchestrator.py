@@ -56,6 +56,7 @@ class PipelineOrchestrator:
         context = context or {}
         plan = plan or await self.planner.build_plan(task, context)
         run_id = plan.run_id
+        user_id = plan.context.get("user_id")
         await self._update_plan_status(run_id, "running")
 
         results: dict[str, AgentResult] = {}
@@ -66,7 +67,7 @@ class PipelineOrchestrator:
         missing = set(await self.checkpoint.resume_from(run_id, plan))
         for agent in plan.agents:
             if agent.id not in missing:
-                output = await self.checkpoint.get_output(run_id, agent.id)
+                output = await self.checkpoint.get_output(run_id, agent.id, user_id=user_id)
                 results[agent.id] = AgentResult(
                     agent_id=agent.id,
                     status="success",
@@ -137,7 +138,8 @@ class PipelineOrchestrator:
 
     async def run_agent_with_validation(self, agent_id: str, plan: ExecutionPlan, run_id: str) -> AgentResult:
         spec = plan.agent_map()[agent_id]
-        existing = await self.checkpoint.get_output(run_id, agent_id)
+        user_id = plan.context.get("user_id")
+        existing = await self.checkpoint.get_output(run_id, agent_id, user_id=user_id)
         if existing is not None:
             return AgentResult(agent_id=agent_id, status="success", output=existing, score=1.0, attempts=0)
 
@@ -207,10 +209,11 @@ class PipelineOrchestrator:
             metrics.agent_score(run_id, agent_id + "_patch_files", patch_result.total_files)
             metrics.agent_score(run_id, agent_id + "_patch_lines", patch_result.total_lines)
 
-            await self.checkpoint.save(run_id, agent_id, output_with_patch, scoring.score)
+            await self.checkpoint.save(run_id, agent_id, output_with_patch, scoring.score, user_id=user_id)
             await self.audit_ledger.record(
                 run_id=run_id,
                 agent_id=agent_id,
+                user_id=user_id,
                 task_description=spec.task,
                 patch_metadata=output_with_patch.get("_patch"),
                 validation_passed=scoring.passed,
@@ -269,7 +272,7 @@ class PipelineOrchestrator:
                 errors=contract_errors,
                 retry_hint="Contract validation failed: " + "; ".join(contract_errors),
             )
-        await self.checkpoint.save(run_id, spec.id, output, scoring.score)
+        await self.checkpoint.save(run_id, spec.id, output, scoring.score, user_id=plan.context.get("user_id"))
         metrics.fallback_activations_total(run_id, spec.id, 1)
         return AgentResult(
             agent_id=spec.id,
@@ -297,8 +300,9 @@ class PipelineOrchestrator:
 
     async def _build_inputs(self, spec: AgentSpec, plan: ExecutionPlan, run_id: str) -> dict[str, Any]:
         inputs: dict[str, Any] = {"task": spec.task, "context": plan.context, "dependencies": {}}
+        user_id = plan.context.get("user_id")
         for producer_id, fields in spec.consumes_from.items():
-            output = await self.checkpoint.get_output(run_id, producer_id)
+            output = await self.checkpoint.get_output(run_id, producer_id, user_id=user_id)
             if output is None:
                 continue
             inputs["dependencies"][producer_id] = {field: output.get(field) for field in fields}
@@ -386,9 +390,12 @@ class PipelineOrchestrator:
 
 async def orchestration_node(state: dict[str, Any]) -> dict[str, Any]:
     orchestrator = PipelineOrchestrator()
+    context = dict(state.get("context") or state.get("context_payload") or {})
+    if state.get("user_id"):
+        context["user_id"] = state["user_id"]
     result = await orchestrator.run_pipeline(
         task=str(state.get("goal") or state.get("task") or ""),
-        context=dict(state.get("context") or state.get("context_payload") or {}),
+        context=context,
     )
     state["orchestration_result"] = result.model_dump()
     return state

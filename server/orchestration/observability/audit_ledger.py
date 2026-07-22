@@ -50,6 +50,7 @@ class AuditEntry(BaseModel):
 
     run_id: StrictStr
     agent_id: StrictStr
+    user_id: StrictStr | None = None
     task_id: StrictStr | None = None
     task_description: StrictStr = ""
 
@@ -102,6 +103,7 @@ class AuditLedger:
         task_id: str | None = None,
         integration_status: str = "merged",
         build_status: str = "unknown",
+        user_id: str | None = None,
     ) -> AuditEntry:
         """
         Record a completed agent execution to the audit ledger.
@@ -125,6 +127,7 @@ class AuditLedger:
         entry = AuditEntry(
             run_id=run_id,
             agent_id=agent_id,
+            user_id=user_id,
             task_id=task_id,
             task_description=task_description,
             files_changed=pm.get("total_files", 0),
@@ -175,20 +178,20 @@ class AuditLedger:
             await conn.execute(
                 """
                 INSERT INTO agent_audit_log (
-                    run_id, agent_id, task_id, task_description,
+                    run_id, agent_id, user_id, task_id, task_description,
                     files_changed, lines_changed, task_type,
                     risk_level, within_budget, requires_approval, violation_reason,
                     integration_status, build_status, validation_passed, confidence_score,
                     semantic_summary, patch_blocks
                 ) VALUES (
-                    $1, $2, $3, $4,
-                    $5, $6, $7,
-                    $8, $9, $10, $11,
-                    $12, $13, $14, $15,
-                    $16::jsonb, $17
+                    $1, $2, $3, $4, $5,
+                    $6, $7, $8,
+                    $9, $10, $11, $12,
+                    $13, $14, $15, $16,
+                    $17::jsonb, $18
                 )
                 """,
-                entry.run_id, entry.agent_id, entry.task_id, entry.task_description,
+                entry.run_id, entry.agent_id, entry.user_id, entry.task_id, entry.task_description,
                 entry.files_changed, entry.lines_changed, entry.task_type,
                 entry.risk_level, entry.within_budget, entry.requires_approval, entry.violation_reason,
                 entry.integration_status, entry.build_status, entry.validation_passed, entry.confidence_score,
@@ -203,7 +206,7 @@ class AuditLedger:
             except Exception:
                 pass
 
-    async def get_entries(self, run_id: str) -> list[dict[str, Any]]:
+    async def get_entries(self, run_id: str, user_id: str | None = None) -> list[dict[str, Any]]:
         """
         Retrieve all audit entries for a given run_id.
         Tries Supabase first, falls back to local JSONL.
@@ -213,8 +216,15 @@ class AuditLedger:
             conn = await database.get_conn()
             try:
                 rows = await conn.fetch(
-                    "SELECT * FROM agent_audit_log WHERE run_id = $1 ORDER BY created_at ASC",
+                    """
+                    SELECT *
+                    FROM agent_audit_log
+                    WHERE run_id = $1
+                      AND ($2::uuid IS NULL OR user_id = $2)
+                    ORDER BY created_at ASC
+                    """,
                     run_id,
+                    user_id,
                 )
                 return [dict(row) for row in rows]
             finally:
@@ -232,7 +242,9 @@ class AuditLedger:
                 line = line.strip()
                 if line:
                     try:
-                        entries.append(json.loads(line))
+                        entry = json.loads(line)
+                        if user_id is None or entry.get("user_id") == user_id:
+                            entries.append(entry)
                     except json.JSONDecodeError:
                         pass
         return entries

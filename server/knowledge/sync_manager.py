@@ -13,7 +13,7 @@ class SyncManager:
         self.resolver = resolver or ConflictResolver()
         self.propagator = propagator or KnowledgePropagator()
 
-    async def add_knowledge(self, entry_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def add_knowledge(self, entry_data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
         """
         Executes the Sync Flow Pipeline:
         Schema Validation -> Conflict Check -> Version Resolution -> Store in DB -> Propagate -> Log
@@ -38,7 +38,7 @@ class SyncManager:
                 logger.warning("[SyncManager] Failed to generate embedding: %s", e)
 
         # 2. Retrieve existing & Resolve Conflicts
-        existing = await self.store.get_entry(incoming.id)
+        existing = await self.store.get_entry(incoming.id, user_id)
         should_write, action = self.resolver.resolve(incoming, existing)
 
         if not should_write:
@@ -49,7 +49,14 @@ class SyncManager:
             }
 
         # 3. Store in DB
-        await self.store.save_entry(incoming)
+        try:
+            await self.store.save_entry(incoming, user_id)
+        except PermissionError as exc:
+            return {
+                "success": False,
+                "reason": str(exc),
+                "action": "rejected",
+            }
 
         # 4. Propagate Update
         await self.propagator.propagate(incoming)
@@ -61,16 +68,16 @@ class SyncManager:
             "version": incoming.version
         }
 
-    async def get_all(self) -> List[KnowledgeEntry]:
+    async def get_all(self, user_id: str) -> List[KnowledgeEntry]:
         """Gets all entries via cached read."""
-        return await self.propagator.get_cached_all(self.store.get_all_entries)
+        return await self.propagator.get_cached_all(user_id, self.store.get_all_entries)
 
-    async def get_by_tag(self, tag: str) -> List[KnowledgeEntry]:
+    async def get_by_tag(self, tag: str, user_id: str) -> List[KnowledgeEntry]:
         """Gets tag filtered entries via cached read."""
-        return await self.propagator.get_cached_tag(tag, self.store.get_entries_by_tag)
+        return await self.propagator.get_cached_tag(tag, user_id, self.store.get_entries_by_tag)
 
     async def semantic_search_shared_knowledge(
-        self, query: str, limit: int = 5
+        self, query: str, user_id: str, limit: int = 5
     ) -> List[tuple[KnowledgeEntry, float]]:
         """Performs semantic search over the shared_knowledge table."""
         if not self.store.has_pool:
@@ -89,10 +96,12 @@ class SyncManager:
                        1 - (embedding <=> $1::vector) AS similarity_score
                 FROM shared_knowledge
                 WHERE embedding IS NOT NULL
+                  AND user_id = $2
                 ORDER BY embedding <=> $1::vector ASC
-                LIMIT $2
+                LIMIT $3
                 """,
                 _vector_literal(query_vector),
+                user_id,
                 limit
             )
             results = []
@@ -110,4 +119,3 @@ class SyncManager:
 
 # Global singleton sync manager
 sync_manager = SyncManager()
-

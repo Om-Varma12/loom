@@ -11,6 +11,7 @@ import SemanticChangeSummary, {
 import {
   developProjectStream,
   getChatDetail,
+  getProject,
   getProjects,
   type ChatMessage,
   type Project,
@@ -332,13 +333,8 @@ function WorkspacePage({ activePage, onNavigate }: WorkspacePageProps) {
       );
       if (reconstructed.projectId) {
         try {
-          const projectResponse = await fetch(
-            `${import.meta.env.VITE_BACKEND_ADDR ?? import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000"}/projects/${reconstructed.projectId}`,
-          );
-          if (projectResponse.ok) {
-            const projectData = await projectResponse.json();
-            reconstructed.selectedAgentIds = projectData.agent_ids || [];
-          }
+          const projectData = await getProject(reconstructed.projectId);
+          reconstructed.selectedAgentIds = projectData.agent_ids || [];
         } catch (err) {
           console.error("Failed to load project agents for chat detail", err);
         }

@@ -10,9 +10,11 @@ from api.routes.shared_knowledge_route import router as shared_knowledge_router
 from api.routes.agent_memory_route import router as agent_memory_router
 from api.routes.audit_route import router as audit_router
 from api.routes.theme_route import router as theme_router
+from api.routes.auth_route import router as auth_router
 
 router = APIRouter()
 
+router.include_router(auth_router)
 router.include_router(project_router)
 router.include_router(agent_router)
 router.include_router(chat_router)

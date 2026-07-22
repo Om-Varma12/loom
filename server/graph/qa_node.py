@@ -62,11 +62,17 @@ async def qa_node(state: LoomState) -> LoomState:
         print(f"[QA] Failed to load agent name mappings: {exc}")
 
     # Fetch semantically similar memories for the selected agents
+    user_id = state.get("user_id")
     for agent_key in state.get('selected_agents', []):
         aid = name_to_id.get(agent_key)
-        if aid:
+        if aid and user_id:
             try:
-                sem_results = await memory_service.semantic_search_memories(state['goal'], agent_id=aid, limit=3)
+                sem_results = await memory_service.semantic_search_memories(
+                    state['goal'],
+                    user_id=user_id,
+                    agent_id=aid,
+                    limit=3,
+                )
                 for m, score in sem_results:
                     agent_memories.append(f"- Agent {agent_key} memory (similarity: {score:.2f}): {m.learned_info}")
             except Exception as exc:
@@ -115,7 +121,7 @@ User Question: {state['goal']}
                     # Store memory for all selected agents
                     for agent_key in state.get('selected_agents', []):
                         aid = name_to_id.get(agent_key)
-                        if aid:
+                        if aid and user_id:
                             entry = AgentMemoryEntry(
                                 agent_id=aid,
                                 context=state["goal"],
@@ -123,7 +129,7 @@ User Question: {state['goal']}
                                 learned_info=learned_info,
                                 tags=tags
                             )
-                            await memory_service.save_memory(entry)
+                            await memory_service.save_memory(entry, user_id)
                             print(f"[QA] Saved memory permanently for agent {agent_key}")
             except Exception as mem_err:
                 print(f"[QA] Failed to parse/save memory: {mem_err}")
