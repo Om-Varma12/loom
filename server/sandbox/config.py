@@ -1,6 +1,6 @@
 import os
 
-DOCKER_IMAGE = "agent-sandbox-base:latest"
+DOCKER_IMAGE = "omvarma12/agent-sandbox-base:v2"
 WORKSPACE_PATH_IN_CONTAINER = "/workspace"
 # Using a local workspace inside the server folder for easier local development
 HOST_PROJECTS_ROOT = os.environ.get("PROJECTS_ROOT", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspaces")))

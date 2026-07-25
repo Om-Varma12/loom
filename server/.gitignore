@@ -48,3 +48,4 @@ workspaces/
 
 # ── uv lockfile — uncomment to ignore if you don't use uv for deployments ─────
 # uv.lock
+cmds.md

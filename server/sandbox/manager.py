@@ -34,15 +34,35 @@ class SandboxManager:
         name = self._container_name(project_id)
         try:
             container = self.client.containers.get(name)
+
+            print(f"\n[SANDBOX] Reusing {container.name}")
+            print(f"ID      : {container.id}")
+            print(f"Status  : {container.status}")
+
             if container.status != "running":
+                print("[SANDBOX] Starting stopped container")
                 container.start()
+
+            container.reload()
+            print(f"Mounts  : {container.attrs['Mounts']}")
+
             self.touch(project_id)
             return container
+
         except docker.errors.NotFound:
-            pass
+            print("\n[SANDBOX] Creating NEW container")
+
 
         host_path = f"{config.HOST_PROJECTS_ROOT}/{project_id}"
         os.makedirs(host_path, exist_ok=True)
+
+        print("\n========== SANDBOX CREATE ==========")
+        print(f"Project ID : {project_id}")
+        print(f"Image      : {config.DOCKER_IMAGE}")
+        print(f"Host Path  : {host_path}")
+        print(f"Exists     : {os.path.exists(host_path)}")
+        print(f"Container  : sandbox-{project_id}")
+        print("====================================")
 
         container = self.client.containers.run(
             config.DOCKER_IMAGE,
@@ -57,7 +77,25 @@ class SandboxManager:
             network_mode="none",
             labels={"project_id": project_id},
         )
+        
         self.touch(project_id)
+        
+        container.reload()
+
+        print("\n========== CONTAINER INFO ==========")
+        print(f"ID         : {container.id}")
+        print(f"Status     : {container.status}")
+        print(f"Mounts     : {container.attrs['Mounts']}")
+        print("====================================")
+        
+        
+        import json
+
+        print("\n========== MOUNTS ==========")
+        print(json.dumps(container.attrs["Mounts"], indent=2))
+        print("============================")
+        
+        
         return container
 
     def touch(self, project_id: str):
@@ -83,14 +121,46 @@ class SandboxManager:
         elif isinstance(cmd, str):
             cmd = f"timeout {timeout} {cmd}"
 
-        result = container.exec_run(cmd, workdir=config.WORKSPACE_PATH_IN_CONTAINER, demux=True)
+        print("\n========== EXEC ==========")
+        print(f"Container : {container.name}")
+        print(f"Command   : {cmd}")
+        print("==========================")
+
+        result = container.exec_run(
+            cmd,
+            workdir=config.WORKSPACE_PATH_IN_CONTAINER,
+            demux=True
+        )
+
         stdout, stderr = result.output
+
+        print(f"Exit Code : {result.exit_code}")
+
+        if stdout:
+            print("\n----- STDOUT -----")
+            print(stdout.decode("utf-8", errors="replace"))
+
+        if stderr:
+            print("\n----- STDERR -----")
+            print(stderr.decode("utf-8", errors="replace"))
+
+        # Show what files currently exist inside the sandbox
+        verify = container.exec_run(
+            ["find", ".", "-type", "f"],
+            workdir=config.WORKSPACE_PATH_IN_CONTAINER
+        )
+
+        print("\n----- FILES IN SANDBOX -----")
+        print(verify.output.decode("utf-8", errors="replace"))
+        print("============================")
+
         return {
             "exit_code": result.exit_code,
             "stdout": (stdout or b"").decode("utf-8", errors="replace"),
             "stderr": (stderr or b"").decode("utf-8", errors="replace"),
         }
-
+        
+        
     def stop(self, project_id: str):
         try:
             container = self.client.containers.get(self._container_name(project_id))
