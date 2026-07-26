@@ -1,24 +1,11 @@
-let _rawApiBaseUrl =
-  import.meta.env.VITE_BACKEND_ADDR ??
-  import.meta.env.VITE_API_BASE_URL ??
-  "http://127.0.0.1:8000";
-
-if (_rawApiBaseUrl && !_rawApiBaseUrl.startsWith("http://") && !_rawApiBaseUrl.startsWith("https://")) {
-  _rawApiBaseUrl = `http://${_rawApiBaseUrl}`;
-}
-const API_BASE_URL = _rawApiBaseUrl;
+import { apiUrl, API_BASE_URL } from "./api";
+export { apiUrl, API_BASE_URL };
 
 type TokenGetter = () => Promise<string | null>;
 type CacheResetter = () => void;
 
 let tokenGetter: TokenGetter | null = null;
 const cacheResetters = new Set<CacheResetter>();
-
-export function apiUrl(path: string): string {
-  const base = API_BASE_URL.replace(/\/$/, "");
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return `${base}${normalizedPath}`;
-}
 
 export function setAuthTokenGetter(getter: TokenGetter | null) {
   tokenGetter = getter;

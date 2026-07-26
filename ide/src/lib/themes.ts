@@ -1,8 +1,4 @@
-let _rawApiBaseUrl = import.meta.env.VITE_BACKEND_ADDR ?? import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
-if (_rawApiBaseUrl && !_rawApiBaseUrl.startsWith("http://") && !_rawApiBaseUrl.startsWith("https://")) {
-  _rawApiBaseUrl = `http://${_rawApiBaseUrl}`;
-}
-const API_BASE_URL = _rawApiBaseUrl;
+import { apiUrl } from "./api";
 
 export type ThemeMetadata = {
   id: string          // stem of the filename, e.g. "theme_claude"
@@ -20,7 +16,7 @@ export type ThemeMetadata = {
 export async function getThemes(): Promise<ThemeMetadata[]> {
   try {
     const response = await fetch(
-      `${API_BASE_URL.replace(/\/$/, '')}/themes`,
+      apiUrl('/themes'),
       { method: 'GET' },
     )
 
